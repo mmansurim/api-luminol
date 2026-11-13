@@ -1,3 +1,4 @@
+import base64
 import os
 import cv2
 import numpy as np
@@ -124,33 +125,54 @@ def processar_luminol(imagem_path):
 def analisar():
   filepath = os.path.join(UPLOAD_FOLDER, 'recebido.jpg')
 
-  # 1. Se veio via formulário multipart (pega qualquer chave de arquivo enviada, ex: App Inventor ou Python)
-  if request.files:
-    primeira_chave = list(request.files.keys())[0]
-    file = request.files[primeira_chave]
-    file.save(filepath)
+  try:
+    # 1. Verificar se os dados vieram em formato JSON com a chave 'image_base64'
+    conteudo = request.get_json(silent=True)
 
-  # 2. Se veio como binário puro no corpo da requisição
-  elif request.data:
-    with open(filepath, 'wb') as f:
-      f.write(request.data)
+    if conteudo and 'image_base64' in conteudo:
+      img_data = base64.b64decode(conteudo['image_base64'])
+      with open(filepath, 'wb') as f:
+        f.write(img_data)
 
-  else:
+    # 2. Compatibilidade caso envie via POST cru ou arquivo tradicional
+    elif request.files:
+      primeira_chave = list(request.files.keys())[0]
+      request.files[primeira_chave].save(filepath)
+    elif request.data:
+      # Tentar ver se é base64 direto no corpo ou binário
+      try:
+        img_data = base64.b64decode(request.data)
+        with open(filepath, 'wb') as f:
+          f.write(img_data)
+      except:
+        with open(filepath, 'wb') as f:
+          f.write(request.data)
+    else:
+      return (
+          jsonify({
+              'erro': 'Nenhuma imagem enviada',
+              'detectado': False,
+              'imagem_url': '',
+          }),
+          400,
+      )
+
+    # Processar com o OpenCV
+    dados, erro = processar_luminol(filepath)
+    if erro:
+      return jsonify({'erro': erro, 'detectado': False, 'imagem_url': ''}), 500
+
+    return jsonify(dados)
+
+  except Exception as e:
     return (
         jsonify({
-            'erro': 'Nenhuma imagem enviada',
+            'erro': str(e),
             'detectado': False,
             'imagem_url': '',
         }),
-        400,
+        500,
     )
-
-  # Processar a imagem com o OpenCV
-  dados, erro = processar_luminol(filepath)
-  if erro:
-    return jsonify({'erro': erro, 'detectado': False, 'imagem_url': ''}), 500
-
-  return jsonify(dados)
 
 
 @app.route('/resultado/<filename>')
