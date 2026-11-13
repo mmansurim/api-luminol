@@ -128,7 +128,13 @@ def analisar():
 def obter_resultado(filename):
   return send_from_directory(UPLOAD_FOLDER, filename)
 
-
+@app.route('/')
+def home():
+  return jsonify({
+      'status': 'online',
+      'mensagem': 'API de Detecção e Quantificação de Luminol está ativa!',
+  })
+  
 if __name__ == '__main__':
   # Porta dinâmica exigida por plataformas de nuvem (como o Render)
   port = int(os.environ.get('PORT', 5000))
