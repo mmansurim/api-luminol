@@ -122,7 +122,20 @@ def processar_luminol(imagem_path):
 
 @app.route('/analisar', methods=['POST'])
 def analisar():
-  if 'image' not in request.files:
+  filepath = os.path.join(UPLOAD_FOLDER, 'recebido.jpg')
+
+  # 1. Se veio via formulário multipart (pega qualquer chave de arquivo enviada, ex: App Inventor ou Python)
+  if request.files:
+    primeira_chave = list(request.files.keys())[0]
+    file = request.files[primeira_chave]
+    file.save(filepath)
+
+  # 2. Se veio como binário puro no corpo da requisição
+  elif request.data:
+    with open(filepath, 'wb') as f:
+      f.write(request.data)
+
+  else:
     return (
         jsonify({
             'erro': 'Nenhuma imagem enviada',
@@ -132,10 +145,7 @@ def analisar():
         400,
     )
 
-  file = request.files['image']
-  filepath = os.path.join(UPLOAD_FOLDER, 'recebido.jpg')
-  file.save(filepath)
-
+  # Processar a imagem com o OpenCV
   dados, erro = processar_luminol(filepath)
   if erro:
     return jsonify({'erro': erro, 'detectado': False, 'imagem_url': ''}), 500
