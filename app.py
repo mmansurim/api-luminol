@@ -123,34 +123,33 @@ def processar_luminol(imagem_path):
 
 @app.route('/analisar', methods=['POST'])
 def analisar():
+  print('--- NOVA REQUISIÇÃO RECEBIDA ---')
+  print('Headers:', dict(request.headers))
+  print('Files:', list(request.files.keys()))
+  print('Data length:', len(request.data) if request.data else 0)
+
   filepath = os.path.join(UPLOAD_FOLDER, 'recebido.jpg')
 
   try:
-    # 1. Verificar se os dados vieram em formato JSON com a chave 'image_base64'
-    conteudo = request.get_json(silent=True)
-
-    if conteudo and 'image_base64' in conteudo:
-      img_data = base64.b64decode(conteudo['image_base64'])
-      with open(filepath, 'wb') as f:
-        f.write(img_data)
-
-    # 2. Compatibilidade caso envie via POST cru ou arquivo tradicional
-    elif request.files:
+    # 1. Se veio via multipart/form-data padrão
+    if request.files:
       primeira_chave = list(request.files.keys())[0]
       request.files[primeira_chave].save(filepath)
+      print(f'Ficheiro guardado via request.files[{primeira_chave}]')
+
+    # 2. Se veio como binário puro no corpo da requisição (request.data)
     elif request.data:
-      # Tentar ver se é base64 direto no corpo ou binário
-      try:
-        img_data = base64.b64decode(request.data)
-        with open(filepath, 'wb') as f:
-          f.write(img_data)
-      except:
-        with open(filepath, 'wb') as f:
-          f.write(request.data)
+      with open(filepath, 'wb') as f:
+        f.write(request.data)
+      print('Ficheiro guardado via request.data binário')
+
     else:
+      print('ERRO: Nenhum ficheiro ou dado encontrado na requisição.')
       return (
           jsonify({
-              'erro': 'Nenhuma imagem enviada',
+              'erro': (
+                  'Nenhuma imagem enviada (corpo da requisição vazio)'
+              ),
               'detectado': False,
               'imagem_url': '',
           }),
@@ -165,14 +164,8 @@ def analisar():
     return jsonify(dados)
 
   except Exception as e:
-    return (
-        jsonify({
-            'erro': str(e),
-            'detectado': False,
-            'imagem_url': '',
-        }),
-        500,
-    )
+    print('Exceção no servidor:', str(e))
+    return jsonify({'erro': str(e), 'detectado': False, 'imagem_url': ''}), 500
 
 
 @app.route('/resultado/<filename>')
