@@ -179,7 +179,7 @@ def analisar():
   return jsonify(dados)
 
 @app.route('/analisarAPP', methods=['POST'])
-def analisar():
+def analisarAPP():
     filepath = os.path.join(UPLOAD_FOLDER, 'luminol_recebida.jpg')
     ficheiro_salvo = False
 
