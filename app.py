@@ -180,54 +180,45 @@ def analisar():
 
 @app.route('/analisarAPP', methods=['POST'])
 def analisar_app():
-    print("========================================")
-    print("--- NOVA REQUISIÇÃO RECEBIDA DO APP ---")
-    print(f"Content-Type: {request.content_type}")
-    print(f"Tamanho de request.data: {len(request.data) if request.data else 0} bytes")
-    print(f"Chaves em request.files: {list(request.files.keys())}")
-    print(f"Chaves em request.form: {list(request.form.keys())}")
-    print("========================================")
-
-    filepath = os.path.join(UPLOAD_FOLDER, 'luminol_recebida.jpg')
-    ficheiro_salvo = False
-
     try:
-        # 1. Tentar capturar por request.files
-        if request.files:
-            for chave in request.files:
-                file = request.files[chave]
-                print(f"Chave detetada em files: '{chave}' | Nome do arquivo: '{file.filename}'")
-                if file:
-                    file.save(filepath)
-                    ficheiro_salvo = True
-                    break
-
-        # 2. Tentar capturar por request.data bruto
-        if not ficheiro_salvo and request.data and len(request.data) > 0:
-            with open(filepath, "wb") as f:
-                f.write(request.data)
-            ficheiro_salvo = True
-            print("Guardado com sucesso via request.data bruto.")
-
-        # Validação final
-        if not ficheiro_salvo or not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+        # 1. Obter o payload JSON enviado pelo Web1.PostText
+        dados = request.get_json(silent=True)
+        if not dados or 'image_base64' not in dados:
             return jsonify({
                 "status": "erro",
-                "mensagem": "Nenhuma imagem válida foi enviada no corpo da requisição.",
-                "debug_content_type": request.content_type,
-                "debug_files_received": list(request.files.keys())
+                "mensagem": "Nenhum dado JSON ou campo image_base64 encontrado."
             }), 400
 
-        # Processamento OpenCV simulado
-        imagem = cv2.imread(filepath)
-        if imagem is None:
-            return jsonify({"status": "erro", "mensagem": "Falha ao descodificar imagem no OpenCV."}), 500
+        img_b64 = dados['image_base64']
 
+        # 2. Remover o cabeçalho data URI caso a extensão o inclua (ex: data:image/jpeg;base64,)
+        if ',' in img_b64:
+            img_b64 = img_b64.split(',')[1]
+
+        # 3. Descodificar a string Base64 para bytes binários
+        img_bytes = base64.b64decode(img_b64)
+
+        # 4. Converter os bytes diretamente para matriz do OpenCV sem precisar de salvar em disco
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        imagem = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if imagem is None:
+            return jsonify({
+                "status": "erro",
+                "mensagem": "O servidor não conseguiu descodificar os dados da imagem em Base64."
+            }), 400
+
+        # 5. Processamento de luminol com OpenCV
         gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
         pixels_brilhantes = int(np.sum(thresh == 255))
+        
+        # Conversão para área em cm² (ajuste o multiplicador conforme a calibração da sua câmara)
         area_cm2 = round(pixels_brilhantes * 0.001, 2)
 
+        print(f"Análise Base64 concluída com sucesso! Píxeis: {pixels_brilhantes} | Área: {area_cm2} cm²")
+
+        # 6. Retornar o JSON estruturado para o App Inventor ler no evento GotText
         return jsonify({
             "status": "sucesso",
             "mensagem": "Análise efetuada com sucesso",
@@ -236,8 +227,11 @@ def analisar_app():
         }), 200
 
     except Exception as e:
-        print(f"Exceção interna: {str(e)}")
-        return jsonify({"status": "erro", "mensagem": str(e)}), 500
+        print(f"Exceção interna no servidor: {str(e)}")
+        return jsonify({
+            "status": "erro",
+            "mensagem": f"Erro interno no servidor: {str(e)}"
+        }), 500
 
 @app.route('/resultado/<filename>')
 def obter_resultado(filename):
