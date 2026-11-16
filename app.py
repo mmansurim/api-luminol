@@ -181,31 +181,31 @@ def analisar():
 @app.route('/analisarAPP', methods=['POST'])
 def analisar_app():
     try:
-        # force=True obriga o Flask a ler o JSON mesmo que o App Inventor não envie o cabeçalho correto
-        dados = request.get_json(silent=True, force=True)
+        img_b64 = None
         
-        # Se mesmo assim vier vazio, tenta interpretar o request.data bruto como JSON
-        if not dados and request.data:
-            import json
-            try:
-                dados = json.loads(request.data.decode('utf-8'))
-            except Exception:
-                pass
+        # 1. Tentar ler como JSON caso o App Inventor envie um dicionário
+        dados = request.get_json(silent=True, force=True)
+        if dados and isinstance(dados, dict):
+            img_b64 = dados.get('image_base64') or dados.get('image') or dados.get('img')
+        
+        # 2. Se não veio JSON, aceitar o corpo bruto (request.data) como a string Base64 pura
+        if not img_b64 and request.data:
+            img_b64 = request.get_data(as_text=True).strip()
+            # Remove eventuais aspas que possam envolver a string
+            if img_b64.startswith('"') and img_b64.endswith('"'):
+                img_b64 = img_b64[1:-1]
 
-        if not dados or 'image_base64' not in dados:
+        if not img_b64 or len(img_b64) < 100:
             return jsonify({
                 "status": "erro",
-                "mensagem": "Nenhum dado JSON ou campo image_base64 encontrado.",
-                "conteudo_recebido": str(request.data)[:200]
+                "mensagem": "Nenhuma string Base64 válida foi detetada no corpo da requisição."
             }), 400
-
-        img_b64 = dados['image_base64']
 
         # Remove o cabeçalho data URI se existir (ex: data:image/jpeg;base64,)
         if ',' in img_b64:
             img_b64 = img_b64.split(',')[1]
 
-        # Descodifica o Base64 para binário e carrega no OpenCV
+        # Descodificar para matriz do OpenCV
         img_bytes = base64.b64decode(img_b64)
         nparr = np.frombuffer(img_bytes, np.uint8)
         imagem = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
