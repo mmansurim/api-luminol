@@ -180,44 +180,48 @@ def analisar():
 
 @app.route('/analisarAPP', methods=['POST'])
 def analisar_app():
+    print("========================================")
+    print("--- NOVA REQUISIÇÃO RECEBIDA DO APP ---")
+    print(f"Content-Type: {request.content_type}")
+    print(f"Tamanho de request.data: {len(request.data) if request.data else 0} bytes")
+    print(f"Chaves em request.files: {list(request.files.keys())}")
+    print(f"Chaves em request.form: {list(request.form.keys())}")
+    print("========================================")
+
     filepath = os.path.join(UPLOAD_FOLDER, 'luminol_recebida.jpg')
     ficheiro_salvo = False
 
     try:
-        print(f"Content-Type recebido: {request.content_type}")
-        print(f"Chaves em request.files: {list(request.files.keys())}")
-
-        # 1. O Web1.PostarFicheiro envia via multipart/form-data (verificar PRIMEIRO)
+        # 1. Tentar capturar por request.files
         if request.files:
             for chave in request.files:
                 file = request.files[chave]
-                if file and file.filename != '':
+                print(f"Chave detetada em files: '{chave}' | Nome do arquivo: '{file.filename}'")
+                if file:
                     file.save(filepath)
                     ficheiro_salvo = True
-                    print(f"Ficheiro guardado com sucesso via request.files['{chave}']")
                     break
 
-        # 2. Alternativa secundária caso venha por bytes brutos
+        # 2. Tentar capturar por request.data bruto
         if not ficheiro_salvo and request.data and len(request.data) > 0:
             with open(filepath, "wb") as f:
                 f.write(request.data)
             ficheiro_salvo = True
-            print("Ficheiro guardado via request.data")
+            print("Guardado com sucesso via request.data bruto.")
 
-        # Validação se o ficheiro chegou e tem tamanho real
+        # Validação final
         if not ficheiro_salvo or not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
             return jsonify({
                 "status": "erro",
-                "mensagem": "Nenhuma imagem válida foi enviada no corpo da requisição."
+                "mensagem": "Nenhuma imagem válida foi enviada no corpo da requisição.",
+                "debug_content_type": request.content_type,
+                "debug_files_received": list(request.files.keys())
             }), 400
 
-        # 3. Processamento OpenCV (exemplo)
+        # Processamento OpenCV simulado
         imagem = cv2.imread(filepath)
         if imagem is None:
-            return jsonify({
-                "status": "erro",
-                "mensagem": "O servidor não conseguiu descodificar a imagem."
-            }), 500
+            return jsonify({"status": "erro", "mensagem": "Falha ao descodificar imagem no OpenCV."}), 500
 
         gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
@@ -232,11 +236,8 @@ def analisar_app():
         }), 200
 
     except Exception as e:
-        print(f"Erro interno: {str(e)}")
-        return jsonify({
-            "status": "erro",
-            "mensagem": f"Erro interno: {str(e)}"
-        }), 500
+        print(f"Exceção interna: {str(e)}")
+        return jsonify({"status": "erro", "mensagem": str(e)}), 500
 
 @app.route('/resultado/<filename>')
 def obter_resultado(filename):
