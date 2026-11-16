@@ -177,7 +177,70 @@ def analisar():
     return jsonify({'erro': erro, 'detectado': False, 'imagem_url': ''}), 500
 
   return jsonify(dados)
-  
+
+@app.route('/analisarAPP', methods=['POST'])
+def analisar():
+    filepath = os.path.join(UPLOAD_FOLDER, 'luminol_recebida.jpg')
+    ficheiro_salvo = False
+
+    try:
+        # 1. Captura os bytes brutos enviados pelo Web1.PostarFicheiro
+        if request.data and len(request.data) > 0:
+            with open(filepath, "wb") as f:
+                f.write(request.data)
+            ficheiro_salvo = True
+            print("Imagem guardada com sucesso via request.data (bytes brutos).")
+
+        # 2. Alternativa caso a requisição venha via multipart/form-data
+        elif request.files:
+            for chave in request.files:
+                file = request.files[chave]
+                if file and file.filename != '':
+                    file.save(filepath)
+                    ficheiro_salvo = True
+                    print(f"Imagem guardada com sucesso via request.files['{chave}'].")
+                    break
+
+        # Validação se o ficheiro chegou e não está vazio
+        if not ficheiro_salvo or not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+            return jsonify({
+                "status": "erro",
+                "mensagem": "Nenhuma imagem válida foi enviada no corpo da requisição."
+            }), 400
+
+        # 3. Processamento da imagem com OpenCV (exemplo para luminol)
+        imagem = cv2.imread(filepath)
+        if imagem is None:
+            return jsonify({
+                "status": "erro",
+                "mensagem": "O servidor não conseguiu descodificar a imagem recebida."
+            }), 500
+
+        # Exemplo de análise computacional (conversão para cinza e limiar de brilho)
+        gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        pixels_brilhantes = int(np.sum(thresh == 255))
+        
+        # Conversão simulada para área em cm² com base nos píxeis detetados
+        area_cm2 = round(pixels_brilhantes * 0.001, 2)
+
+        print(f"Análise concluída. Píxeis detetados: {pixels_brilhantes} | Área: {area_cm2} cm²")
+
+        # 4. Retorno JSON de sucesso para o App Inventor ler no Web1.GotText
+        return jsonify({
+            "status": "sucesso",
+            "mensagem": "Análise de luminol efetuada com sucesso",
+            "area_cm2": area_cm2,
+            "pixels_detectados": pixels_brilhantes
+        }), 200
+
+    except Exception as e:
+        print(f"Exceção interna no servidor: {str(e)}")
+        return jsonify({
+            "status": "erro",
+            "mensagem": f"Erro interno no servidor: {str(e)}"
+        }), 500
+
 
 @app.route('/resultado/<filename>')
 def obter_resultado(filename):
