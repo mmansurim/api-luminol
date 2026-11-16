@@ -181,44 +181,44 @@ def analisar():
 @app.route('/analisarAPP', methods=['POST'])
 def analisar_app():
     try:
-        # 1. Obter o payload JSON enviado pelo Web1.PostText
-        dados = request.get_json(silent=True)
+        # force=True obriga o Flask a ler o JSON mesmo que o App Inventor não envie o cabeçalho correto
+        dados = request.get_json(silent=True, force=True)
+        
+        # Se mesmo assim vier vazio, tenta interpretar o request.data bruto como JSON
+        if not dados and request.data:
+            import json
+            try:
+                dados = json.loads(request.data.decode('utf-8'))
+            except Exception:
+                pass
+
         if not dados or 'image_base64' not in dados:
             return jsonify({
                 "status": "erro",
-                "mensagem": "Nenhum dado JSON ou campo image_base64 encontrado."
+                "mensagem": "Nenhum dado JSON ou campo image_base64 encontrado.",
+                "conteudo_recebido": str(request.data)[:200]
             }), 400
 
         img_b64 = dados['image_base64']
 
-        # 2. Remover o cabeçalho data URI caso a extensão o inclua (ex: data:image/jpeg;base64,)
+        # Remove o cabeçalho data URI se existir (ex: data:image/jpeg;base64,)
         if ',' in img_b64:
             img_b64 = img_b64.split(',')[1]
 
-        # 3. Descodificar a string Base64 para bytes binários
+        # Descodifica o Base64 para binário e carrega no OpenCV
         img_bytes = base64.b64decode(img_b64)
-
-        # 4. Converter os bytes diretamente para matriz do OpenCV sem precisar de salvar em disco
         nparr = np.frombuffer(img_bytes, np.uint8)
         imagem = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if imagem is None:
-            return jsonify({
-                "status": "erro",
-                "mensagem": "O servidor não conseguiu descodificar os dados da imagem em Base64."
-            }), 400
+            return jsonify({"status": "erro", "mensagem": "Falha ao descodificar imagem Base64."}), 400
 
-        # 5. Processamento de luminol com OpenCV
+        # Processamento OpenCV de luminol
         gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
         pixels_brilhantes = int(np.sum(thresh == 255))
-        
-        # Conversão para área em cm² (ajuste o multiplicador conforme a calibração da sua câmara)
         area_cm2 = round(pixels_brilhantes * 0.001, 2)
 
-        print(f"Análise Base64 concluída com sucesso! Píxeis: {pixels_brilhantes} | Área: {area_cm2} cm²")
-
-        # 6. Retornar o JSON estruturado para o App Inventor ler no evento GotText
         return jsonify({
             "status": "sucesso",
             "mensagem": "Análise efetuada com sucesso",
@@ -227,11 +227,7 @@ def analisar_app():
         }), 200
 
     except Exception as e:
-        print(f"Exceção interna no servidor: {str(e)}")
-        return jsonify({
-            "status": "erro",
-            "mensagem": f"Erro interno no servidor: {str(e)}"
-        }), 500
+        return jsonify({"status": "erro", "mensagem": f"Erro interno: {str(e)}"}), 500
 
 @app.route('/resultado/<filename>')
 def obter_resultado(filename):
