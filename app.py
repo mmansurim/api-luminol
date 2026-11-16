@@ -123,50 +123,61 @@ def processar_luminol(imagem_path):
 
 @app.route('/analisar', methods=['POST'])
 def analisar():
-  print('--- NOVA REQUISIÇÃO RECEBIDA ---')
-  print('Headers:', dict(request.headers))
-  print('Files:', list(request.files.keys()))
-  print('Data length:', len(request.data) if request.data else 0)
+  print('--- NOVA REQUISIÇÃO RECEBIDA DO APP ---')
+  print('FILES:', request.files)
+  print('FORM:', request.form)
 
   filepath = os.path.join(UPLOAD_FOLDER, 'recebido.jpg')
+  ficheiro_salvo = False
 
-  try:
-    # 1. Se veio via multipart/form-data padrão
-    if request.files:
-      primeira_chave = list(request.files.keys())[0]
-      request.files[primeira_chave].save(filepath)
-      print(f'Ficheiro guardado via request.files[{primeira_chave}]')
+  # 1. Tentar apanhar se veio através de request.files (qualquer chave multipart)
+  if request.files:
+    for chave in request.files:
+      file = request.files[chave]
+      if file and file.filename != '':
+        file.save(filepath)
+        ficheiro_salvo = True
+        print(f"Ficheiro guardado com sucesso via request.files['{chave}']")
+        break
 
-    # 2. Se veio como binário puro no corpo da requisição (request.data)
-    elif request.data:
-      with open(filepath, 'wb') as f:
-        f.write(request.data)
-      print('Ficheiro guardado via request.data binário')
+  # 2. Tentar apanhar se veio como dados binários crus (request.data)
+  if not ficheiro_salvo and request.data:
+    with open(filepath, 'wb') as f:
+      f.write(request.data)
+    ficheiro_salvo = True
+    print('Ficheiro guardado com sucesso via request.data binário')
 
-    else:
-      print('ERRO: Nenhum ficheiro ou dado encontrado na requisição.')
-      return (
-          jsonify({
-              'erro': (
-                  'Nenhuma imagem enviada (corpo da requisição vazio)'
-              ),
-              'detectado': False,
-              'imagem_url': '',
-          }),
-          400,
-      )
+  # 3. Tentar ler diretamente do stream de rede se ainda não foi salvo
+  if not ficheiro_salvo:
+    try:
+      dados_stream = request.stream.read()
+      if dados_stream and len(dados_stream) > 0:
+        with open(filepath, 'wb') as f:
+          f.write(dados_stream)
+        ficheiro_salvo = True
+        print('Ficheiro guardado com sucesso via request.stream')
+    except Exception as e:
+      print('Erro ao ler stream:', str(e))
 
-    # Processar com o OpenCV
-    dados, erro = processar_luminol(filepath)
-    if erro:
-      return jsonify({'erro': erro, 'detectado': False, 'imagem_url': ''}), 500
+  # Se mesmo assim nenhum método conseguiu extrair o ficheiro
+  if not ficheiro_salvo or not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+    print('ERRO: Nenhum conteúdo de imagem válido encontrado.')
+    return (
+        jsonify({
+            'erro': 'Nenhuma imagem enviada (corpo da requisição vazio)',
+            'detectado': False,
+            'imagem_url': '',
+        }),
+        400,
+    )
 
-    return jsonify(dados)
+  # Processar a imagem com o OpenCV
+  dados, erro = processar_luminol(filepath)
+  if erro:
+    return jsonify({'erro': erro, 'detectado': False, 'imagem_url': ''}), 500
 
-  except Exception as e:
-    print('Exceção no servidor:', str(e))
-    return jsonify({'erro': str(e), 'detectado': False, 'imagem_url': ''}), 500
-
+  return jsonify(dados)
+  
 
 @app.route('/resultado/<filename>')
 def obter_resultado(filename):
