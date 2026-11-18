@@ -127,38 +127,59 @@ def analisar():
     ficheiro_salvo = False
 
     try:
-        print("--- REQUISIÇÃO RECEBIDA EM /analisar ---")
+        print("========================================")
+        print("--- REQUISIÇÃO DETETADA EM /analisar ---")
         print(f"Content-Type: {request.content_type}")
+        print(f"Tamanho de request.data: {len(request.data) if request.data else 0} bytes")
         print(f"Chaves em request.files: {list(request.files.keys())}")
+        print(f"Chaves em request.form: {list(request.form.keys())}")
+        print("========================================")
 
-        # 1. Tentar apanhar de qualquer chave existente em request.files (padrão do Kodular/App Inventor)
+        # 1. Tentar apanhar por request.files (qualquer chave)
         if request.files:
             for chave in request.files:
                 file = request.files[chave]
                 if file and file.filename != '':
                     file.save(filepath)
                     ficheiro_salvo = True
-                    print(f"Ficheiro guardado com sucesso via request.files['{chave}']")
+                    print(f"Sucesso via request.files['{chave}']")
                     break
 
-        # 2. Se não veio por files, tentar apanhar se o Kodular enviou sem chave (request.data puro)
+        # 2. Se falhar, tentar apanhar por request.data bruto (caso o cliente envie os bytes diretos)
         if not ficheiro_salvo and request.data and len(request.data) > 0:
             with open(filepath, "wb") as f:
                 f.write(request.data)
             ficheiro_salvo = True
-            print("Ficheiro guardado via request.data bruto.")
+            print("Sucesso via request.data bruto.")
 
-        # Validação final
+        # 3. Se falhar, verificar se veio dentro de algum campo form (ex: base64 ou form-data)
+        if not ficheiro_salvo and request.form:
+            for chave in request.form:
+                val = request.form[chave]
+                if len(val) > 100: # Se for uma string grande (ex: base64)
+                    import base64
+                    try:
+                        img_bytes = base64.b64decode(val.split(',')[1] if ',' in val else val)
+                        with open(filepath, "wb") as f:
+                            f.write(img_bytes)
+                        ficheiro_salvo = True
+                        print(f"Sucesso via request.form['{chave}'] descodificado de base64.")
+                        break
+                    except Exception:
+                        pass
+
+        # Validação final rigorosa
         if not ficheiro_salvo or not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
             return jsonify({
                 "status": "erro",
-                "mensagem": "nenhuma imagem enviada"
+                "mensagem": "nenhuma imagem enviada",
+                "debug_content_type": request.content_type
             }), 400
 
         # Processamento OpenCV do luminol
         imagem = cv2.imread(filepath)
         if imagem is None:
-            return jsonify({"status": "erro", "mensagem": "Falha ao descodificar imagem."}), 500
+            return jsonify({"status": "erro", "mensagem": "Falha ao descodificar imagem no OpenCV."}), 500
 
         gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
@@ -173,7 +194,7 @@ def analisar():
         }), 200
 
     except Exception as e:
-        print(f"Erro interno: {str(e)}")
+        print(f"Erro interno crítico: {str(e)}")
         return jsonify({"status": "erro", "mensagem": str(e)}), 500
       
 @app.route('/analisarAPP', methods=['POST'])
