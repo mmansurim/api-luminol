@@ -123,61 +123,59 @@ def processar_luminol(imagem_path):
 
 @app.route('/analisar', methods=['POST'])
 def analisar():
-  print('--- NOVA REQUISIÇÃO RECEBIDA DO APP ---')
-  print('FILES:', request.files)
-  print('FORM:', request.form)
+    filepath = os.path.join(UPLOAD_FOLDER, 'luminol_recebida.jpg')
+    ficheiro_salvo = False
 
-  filepath = os.path.join(UPLOAD_FOLDER, 'recebido.jpg')
-  ficheiro_salvo = False
-
-  # 1. Tentar apanhar se veio através de request.files (qualquer chave multipart)
-  if request.files:
-    for chave in request.files:
-      file = request.files[chave]
-      if file and file.filename != '':
-        file.save(filepath)
-        ficheiro_salvo = True
-        print(f"Ficheiro guardado com sucesso via request.files['{chave}']")
-        break
-
-  # 2. Tentar apanhar se veio como dados binários crus (request.data)
-  if not ficheiro_salvo and request.data:
-    with open(filepath, 'wb') as f:
-      f.write(request.data)
-    ficheiro_salvo = True
-    print('Ficheiro guardado com sucesso via request.data binário')
-
-  # 3. Tentar ler diretamente do stream de rede se ainda não foi salvo
-  if not ficheiro_salvo:
     try:
-      dados_stream = request.stream.read()
-      if dados_stream and len(dados_stream) > 0:
-        with open(filepath, 'wb') as f:
-          f.write(dados_stream)
-        ficheiro_salvo = True
-        print('Ficheiro guardado com sucesso via request.stream')
+        print("--- REQUISIÇÃO RECEBIDA EM /analisar ---")
+        print(f"Content-Type: {request.content_type}")
+        print(f"Chaves em request.files: {list(request.files.keys())}")
+
+        # 1. Tentar apanhar de qualquer chave existente em request.files (padrão do Kodular/App Inventor)
+        if request.files:
+            for chave in request.files:
+                file = request.files[chave]
+                if file and file.filename != '':
+                    file.save(filepath)
+                    ficheiro_salvo = True
+                    print(f"Ficheiro guardado com sucesso via request.files['{chave}']")
+                    break
+
+        # 2. Se não veio por files, tentar apanhar se o Kodular enviou sem chave (request.data puro)
+        if not ficheiro_salvo and request.data and len(request.data) > 0:
+            with open(filepath, "wb") as f:
+                f.write(request.data)
+            ficheiro_salvo = True
+            print("Ficheiro guardado via request.data bruto.")
+
+        # Validação final
+        if not ficheiro_salvo or not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+            return jsonify({
+                "status": "erro",
+                "mensagem": "nenhuma imagem enviada"
+            }), 400
+
+        # Processamento OpenCV do luminol
+        imagem = cv2.imread(filepath)
+        if imagem is None:
+            return jsonify({"status": "erro", "mensagem": "Falha ao descodificar imagem."}), 500
+
+        gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        pixels_brilhantes = int(np.sum(thresh == 255))
+        area_cm2 = round(pixels_brilhantes * 0.001, 2)
+
+        return jsonify({
+            "status": "sucesso",
+            "mensagem": "Análise efetuada com sucesso",
+            "area_cm2": area_cm2,
+            "pixels_detectados": pixels_brilhantes
+        }), 200
+
     except Exception as e:
-      print('Erro ao ler stream:', str(e))
-
-  # Se mesmo assim nenhum método conseguiu extrair o ficheiro
-  if not ficheiro_salvo or not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
-    print('ERRO: Nenhum conteúdo de imagem válido encontrado.')
-    return (
-        jsonify({
-            'erro': 'Nenhuma imagem enviada (corpo da requisição vazio)',
-            'detectado': False,
-            'imagem_url': '',
-        }),
-        400,
-    )
-
-  # Processar a imagem com o OpenCV
-  dados, erro = processar_luminol(filepath)
-  if erro:
-    return jsonify({'erro': erro, 'detectado': False, 'imagem_url': ''}), 500
-
-  return jsonify(dados)
-
+        print(f"Erro interno: {str(e)}")
+        return jsonify({"status": "erro", "mensagem": str(e)}), 500
+      
 @app.route('/analisarAPP', methods=['POST'])
 def analisar_app():
     try:
